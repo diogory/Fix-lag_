@@ -9,6 +9,7 @@ local PG=LP:WaitForChild("PlayerGui")
 
 local MAX_TARGETS=100
 local MAX_SPEED=400
+local AIM_SMOOTH=0.35
 
 local aim=false
 local aimType="NPC"
@@ -19,8 +20,8 @@ local speedOn=false
 local speed=16
 local perf="OFF"
 
-local aimTarget
-local aimMark
+local aimTarget=nil
+local aimMark=nil
 local hits={}
 local saved={}
 
@@ -288,20 +289,16 @@ local function perfFix(mode)
 			else
 				o.Rate=o.Rate*.25
 			end
-
 		elseif o:IsA("Trail") or o:IsA("Beam") then
 			if ultraMode then
 				o.Enabled=false
 			end
-
 		elseif o:IsA("PointLight")
 		or o:IsA("SpotLight")
 		or o:IsA("SurfaceLight") then
 			o.Enabled=false
-
 		elseif o:IsA("PostEffect") then
 			o.Enabled=false
-
 		elseif o:IsA("BasePart") then
 			o.CastShadow=false
 		end
@@ -347,14 +344,20 @@ local function getTargets(kind)
 		for _,p in ipairs(Players:GetPlayers()) do
 			if p~=LP and p.Character and validPlayer(p.Character) then
 				list[#list+1]=p.Character
-				if #list>=MAX_TARGETS then break end
+
+				if #list>=MAX_TARGETS then
+					break
+				end
 			end
 		end
 	else
 		for _,m in ipairs(Workspace:GetChildren()) do
 			if validNPC(m) then
 				list[#list+1]=m
-				if #list>=MAX_TARGETS then break end
+
+				if #list>=MAX_TARGETS then
+					break
+				end
 			end
 		end
 	end
@@ -374,7 +377,9 @@ local function clearAim()
 end
 
 local function validAimTarget(m)
-	if not m or not m.Parent then return false end
+	if not m or not m.Parent then
+		return false
+	end
 
 	local h=m:FindFirstChildOfClass("Humanoid")
 	local r=m:FindFirstChild("HumanoidRootPart")
@@ -390,61 +395,28 @@ local function validAimTarget(m)
 	end
 end
 
-local function getAimScore(m,cam,myRoot)
-	local r=m:FindFirstChild("HumanoidRootPart")
-
-	if not r then
-		return math.huge
-	end
-
-	local p,on=cam:WorldToViewportPoint(r.Position)
-
-	if not on or p.Z<=0 then
-		return math.huge
-	end
-
-	local center=cam.ViewportSize*.5
-
-	local screenDist=
-		(Vector2.new(p.X,p.Y)-center).Magnitude
-
-	local worldDist=
-		(r.Position-myRoot.Position).Magnitude
-
-	if worldDist>1500 then
-		return math.huge
-	end
-
-	return screenDist*4+worldDist*.015
-end
-
 local function findAimTarget()
-	local cam=Workspace.CurrentCamera
 	local char=LP.Character
 	local myRoot=char and char:FindFirstChild("HumanoidRootPart")
 
-	if not cam or not myRoot then
+	if not myRoot then
 		return nil
 	end
 
-	if validAimTarget(aimTarget) then
-		local score=getAimScore(aimTarget,cam,myRoot)
-
-		if score<1200 then
-			return aimTarget
-		end
-	end
-
 	local best=nil
-	local bestScore=math.huge
+	local bestDistance=math.huge
 
 	for _,m in ipairs(getTargets(aimType)) do
 		if validAimTarget(m) then
-			local score=getAimScore(m,cam,myRoot)
+			local root=m:FindFirstChild("HumanoidRootPart")
 
-			if score<bestScore then
-				bestScore=score
-				best=m
+			if root then
+				local distance=(root.Position-myRoot.Position).Magnitude
+
+				if distance<bestDistance then
+					bestDistance=distance
+					best=m
+				end
 			end
 		end
 	end
@@ -458,14 +430,45 @@ local function updateAim()
 		return
 	end
 
-	local target=findAimTarget()
+	local cam=Workspace.CurrentCamera
+	local char=LP.Character
+	local myRoot=char and char:FindFirstChild("HumanoidRootPart")
 
-	if not target then
+	if not cam or not myRoot then
+		return
+	end
+
+	if not validAimTarget(aimTarget) then
+		aimTarget=findAimTarget()
+	end
+
+	if not aimTarget then
+		aimLabel.Text="TARGET: --"
+		return
+	end
+
+	local targetRoot=aimTarget:FindFirstChild("HumanoidRootPart")
+
+	if not targetRoot then
 		clearAim()
 		return
 	end
 
-	aimTarget=target
+	local direction=targetRoot.Position-cam.CFrame.Position
+
+	if direction.Magnitude>0 then
+		local desiredLook=direction.Unit
+		local currentLook=cam.CFrame.LookVector
+		local newLook=currentLook:Lerp(
+			desiredLook,
+			AIM_SMOOTH
+		)
+
+		cam.CFrame=CFrame.lookAt(
+			cam.CFrame.Position,
+			cam.CFrame.Position+newLook
+		)
+	end
 
 	if not aimMark then
 		aimMark=Instance.new("Highlight")
@@ -475,8 +478,8 @@ local function updateAim()
 		aimMark.OutlineTransparency=0
 	end
 
-	aimMark.Adornee=target
-	aimMark.Parent=target
+	aimMark.Adornee=aimTarget
+	aimMark.Parent=aimTarget
 
 	if aimType=="NPC" then
 		aimMark.FillColor=Color3.fromRGB(255,170,0)
@@ -486,7 +489,7 @@ local function updateAim()
 		aimMark.OutlineColor=Color3.fromRGB(255,190,245)
 	end
 
-	aimLabel.Text="TARGET: "..target.Name
+	aimLabel.Text="TARGET: "..aimTarget.Name
 end
 
 aimButton.MouseButton1Click:Connect(function()
@@ -503,18 +506,27 @@ end)
 aimNPC.MouseButton1Click:Connect(function()
 	aimType="NPC"
 	clearAim()
-	if aim then updateAim() end
+
+	if aim then
+		updateAim()
+	end
 end)
 
 aimPlayer.MouseButton1Click:Connect(function()
 	aimType="PLAYER"
 	clearAim()
-	if aim then updateAim() end
+
+	if aim then
+		updateAim()
+	end
 end)
 
 local function clearHit()
 	for m,h in pairs(hits) do
-		if h then h:Destroy() end
+		if h then
+			h:Destroy()
+		end
+
 		hits[m]=nil
 	end
 end
@@ -573,21 +585,43 @@ end)
 hitNPC.MouseButton1Click:Connect(function()
 	hitType="NPC"
 	clearHit()
-	if hit then updateHit() end
+
+	if hit then
+		updateHit()
+	end
 end)
 
 hitPlayer.MouseButton1Click:Connect(function()
 	hitType="PLAYER"
 	clearHit()
-	if hit then updateHit() end
+
+	if hit then
+		updateHit()
+	end
 end)
 
 local function setSpeed(v)
-	speed=math.clamp(math.floor(tonumber(v) or 16),0,MAX_SPEED)
+	speed=math.clamp(
+		math.floor(tonumber(v) or 16),
+		0,
+		MAX_SPEED
+	)
 
 	speedBox.Text=tostring(speed)
-	fill.Size=UDim2.new(speed/MAX_SPEED,0,1,0)
-	knob.Position=UDim2.new(speed/MAX_SPEED,0,.5,0)
+
+	fill.Size=UDim2.new(
+		speed/MAX_SPEED,
+		0,
+		1,
+		0
+	)
+
+	knob.Position=UDim2.new(
+		speed/MAX_SPEED,
+		0,
+		.5,
+		0
+	)
 
 	local char=LP.Character
 	local hum=char and char:FindFirstChildOfClass("Humanoid")
@@ -657,6 +691,7 @@ noclipButton.MouseButton1Click:Connect(function()
 end)
 
 UIS.InputChanged:Connect(function(i)
+
 	if sliding and (
 		i.UserInputType==Enum.UserInputType.Touch
 		or i.UserInputType==Enum.UserInputType.MouseMovement
@@ -668,6 +703,7 @@ UIS.InputChanged:Connect(function(i)
 		i.UserInputType==Enum.UserInputType.Touch
 		or i.UserInputType==Enum.UserInputType.MouseMovement
 	) then
+
 		local d=i.Position-miniDragStart
 
 		mini.Position=UDim2.new(
@@ -682,6 +718,7 @@ UIS.InputChanged:Connect(function(i)
 		i.UserInputType==Enum.UserInputType.Touch
 		or i.UserInputType==Enum.UserInputType.MouseMovement
 	) then
+
 		local d=i.Position-fpsDragStart
 
 		fpsBox.Position=UDim2.new(
@@ -701,6 +738,7 @@ UIS.InputEnded:Connect(function(i)
 end)
 
 RunService.Heartbeat:Connect(function(dt)
+
 	aimClock+=dt
 	hitClock+=dt
 
@@ -716,6 +754,15 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
+	if speedOn then
+		local char=LP.Character
+		local hum=char and char:FindFirstChildOfClass("Humanoid")
+
+		if hum then
+			hum.WalkSpeed=speed
+		end
+	end
+
 	if aim and aimClock>=.016 then
 		aimClock=0
 		updateAim()
@@ -728,10 +775,12 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 RunService.RenderStepped:Connect(function(dt)
+
 	fpsCount+=1
 	fpsClock+=dt
 
 	if fpsClock>=.5 then
+
 		local f=math.floor(fpsCount/fpsClock)
 		f=math.clamp(f,0,300)
 
@@ -751,6 +800,7 @@ RunService.RenderStepped:Connect(function(dt)
 end)
 
 LP.CharacterAdded:Connect(function(char)
+
 	task.wait(.4)
 
 	local hum=char:FindFirstChildOfClass("Humanoid")
@@ -771,7 +821,9 @@ LP.CharacterAdded:Connect(function(char)
 end)
 
 Workspace.DescendantAdded:Connect(function(o)
+
 	if perf=="DEEP" then
+
 		saveObject(o)
 
 		if o:IsA("ParticleEmitter") then
@@ -786,6 +838,7 @@ Workspace.DescendantAdded:Connect(function(o)
 		end
 
 	elseif perf=="ULTRA" then
+
 		saveObject(o)
 
 		if o:IsA("ParticleEmitter")
@@ -803,5 +856,5 @@ Workspace.DescendantAdded:Connect(function(o)
 end)
 
 setSpeed(16)
-
 PERF.Visible=true
+main.Visible=false

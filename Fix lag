@@ -1,0 +1,807 @@
+loadstring(game:HttpGet(local Players=game:GetService("Players")
+local RunService=game:GetService("RunService")
+local UIS=game:GetService("UserInputService")
+local Lighting=game:GetService("Lighting")
+local Workspace=game:GetService("Workspace")
+
+local LP=Players.LocalPlayer
+local PG=LP:WaitForChild("PlayerGui")
+
+local MAX_TARGETS=100
+local MAX_SPEED=400
+
+local aim=false
+local aimType="NPC"
+local hit=false
+local hitType="NPC"
+local noclip=false
+local speedOn=false
+local speed=16
+local perf="OFF"
+
+local aimTarget
+local aimMark
+local hits={}
+local saved={}
+
+local aimClock=0
+local hitClock=0
+local fpsClock=0
+local fpsCount=0
+
+local oldShadow=Lighting.GlobalShadows
+local oldDiffuse=Lighting.EnvironmentDiffuseScale
+local oldSpecular=Lighting.EnvironmentSpecularScale
+
+local gui=Instance.new("ScreenGui")
+gui.Name="RPGDebug"
+gui.ResetOnSpawn=false
+gui.IgnoreGuiInset=true
+gui.Parent=PG
+
+local fpsBox=Instance.new("Frame",gui)
+fpsBox.Size=UDim2.fromOffset(76,30)
+fpsBox.Position=UDim2.fromOffset(12,62)
+fpsBox.BackgroundColor3=Color3.fromRGB(18,18,22)
+fpsBox.BackgroundTransparency=.12
+fpsBox.BorderSizePixel=0
+fpsBox.Active=true
+Instance.new("UICorner",fpsBox).CornerRadius=UDim.new(0,7)
+
+local fpsLabel=Instance.new("TextLabel",fpsBox)
+fpsLabel.Size=UDim2.fromScale(1,1)
+fpsLabel.BackgroundTransparency=1
+fpsLabel.Text="FPS 0"
+fpsLabel.TextSize=12
+fpsLabel.Font=Enum.Font.GothamBold
+fpsLabel.TextColor3=Color3.fromRGB(120,255,120)
+
+local fpsDragging=false
+local fpsDragStart
+local fpsStartPos
+
+fpsBox.InputBegan:Connect(function(i)
+	if i.UserInputType==Enum.UserInputType.Touch
+	or i.UserInputType==Enum.UserInputType.MouseButton1 then
+		fpsDragging=true
+		fpsDragStart=i.Position
+		fpsStartPos=fpsBox.Position
+	end
+end)
+
+fpsBox.InputEnded:Connect(function(i)
+	if i.UserInputType==Enum.UserInputType.Touch
+	or i.UserInputType==Enum.UserInputType.MouseButton1 then
+		fpsDragging=false
+	end
+end)
+
+local mini=Instance.new("TextButton",gui)
+mini.Size=UDim2.fromOffset(44,44)
+mini.Position=UDim2.fromOffset(14,105)
+mini.Text="⚡"
+mini.TextSize=18
+mini.Font=Enum.Font.GothamBold
+mini.TextColor3=Color3.new(1,1,1)
+mini.BackgroundColor3=Color3.fromRGB(28,28,34)
+mini.BorderSizePixel=0
+mini.Active=true
+Instance.new("UICorner",mini).CornerRadius=UDim.new(1,0)
+
+local main=Instance.new("Frame",gui)
+main.Size=UDim2.fromOffset(280,315)
+main.Position=UDim2.new(.5,-140,.5,-157)
+main.BackgroundColor3=Color3.fromRGB(17,17,21)
+main.BorderSizePixel=0
+main.Visible=false
+Instance.new("UICorner",main).CornerRadius=UDim.new(0,11)
+
+local tabs=Instance.new("Frame",main)
+tabs.Size=UDim2.new(1,-10,0,35)
+tabs.Position=UDim2.fromOffset(5,5)
+tabs.BackgroundTransparency=1
+
+local tabLayout=Instance.new("UIListLayout",tabs)
+tabLayout.FillDirection=Enum.FillDirection.Horizontal
+tabLayout.Padding=UDim.new(0,3)
+
+local body=Instance.new("Frame",main)
+body.Size=UDim2.new(1,-10,1,-45)
+body.Position=UDim2.fromOffset(5,42)
+body.BackgroundTransparency=1
+
+local pages={}
+
+local function newPage()
+	local p=Instance.new("Frame",body)
+	p.Size=UDim2.fromScale(1,1)
+	p.BackgroundTransparency=1
+	p.Visible=false
+	pages[#pages+1]=p
+	return p
+end
+
+local PERF=newPage()
+local AIM=newPage()
+local HIT=newPage()
+local MOVE=newPage()
+
+local function makeTab(text,page)
+	local b=Instance.new("TextButton",tabs)
+	b.Size=UDim2.new(.25,-3,1,0)
+	b.Text=text
+	b.TextSize=10
+	b.Font=Enum.Font.GothamBold
+	b.TextColor3=Color3.new(1,1,1)
+	b.BackgroundColor3=Color3.fromRGB(42,42,50)
+	b.BorderSizePixel=0
+	Instance.new("UICorner",b).CornerRadius=UDim.new(0,7)
+
+	b.MouseButton1Click:Connect(function()
+		for _,p in ipairs(pages) do
+			p.Visible=false
+		end
+		page.Visible=true
+	end)
+end
+
+makeTab("PERF",PERF)
+makeTab("AIM",AIM)
+makeTab("HIT",HIT)
+makeTab("MOVE",MOVE)
+
+local function button(parent,text,y)
+	local b=Instance.new("TextButton",parent)
+	b.Size=UDim2.new(1,-16,0,38)
+	b.Position=UDim2.fromOffset(8,y)
+	b.Text=text
+	b.TextSize=11
+	b.Font=Enum.Font.GothamBold
+	b.TextColor3=Color3.new(1,1,1)
+	b.BackgroundColor3=Color3.fromRGB(42,42,50)
+	b.BorderSizePixel=0
+	Instance.new("UICorner",b).CornerRadius=UDim.new(0,7)
+	return b
+end
+
+local function makeLabel(parent,text,y)
+	local l=Instance.new("TextLabel",parent)
+	l.Size=UDim2.new(1,-16,0,24)
+	l.Position=UDim2.fromOffset(8,y)
+	l.Text=text
+	l.TextSize=11
+	l.Font=Enum.Font.Gotham
+	l.TextColor3=Color3.fromRGB(170,170,175)
+	l.BackgroundTransparency=1
+	return l
+end
+
+local deep=button(PERF,"DEEP FIX",10)
+local ultra=button(PERF,"ULTRA FIX",54)
+local restore=button(PERF,"RESTORE",98)
+
+local aimButton=button(AIM,"AIM: OFF",10)
+local aimNPC=button(AIM,"QUÁI",54)
+local aimPlayer=button(AIM,"NGƯỜI",98)
+local aimLabel=makeLabel(AIM,"TARGET: --",145)
+
+local hitButton=button(HIT,"HITBOX: OFF",10)
+local hitNPC=button(HIT,"QUÁI",54)
+local hitPlayer=button(HIT,"NGƯỜI",98)
+local hitLabel=makeLabel(HIT,"TARGETS: 0",145)
+
+local noclipButton=button(MOVE,"NOCLIP: OFF",10)
+local speedButton=button(MOVE,"SPEED: OFF",54)
+
+local speedBox=Instance.new("TextBox",MOVE)
+speedBox.Size=UDim2.new(1,-16,0,35)
+speedBox.Position=UDim2.fromOffset(8,98)
+speedBox.Text="16"
+speedBox.TextSize=12
+speedBox.Font=Enum.Font.GothamBold
+speedBox.TextColor3=Color3.new(1,1,1)
+speedBox.BackgroundColor3=Color3.fromRGB(35,35,42)
+speedBox.BorderSizePixel=0
+speedBox.ClearTextOnFocus=false
+Instance.new("UICorner",speedBox).CornerRadius=UDim.new(0,7)
+
+local bar=Instance.new("Frame",MOVE)
+bar.Size=UDim2.new(1,-20,0,8)
+bar.Position=UDim2.fromOffset(10,148)
+bar.BackgroundColor3=Color3.fromRGB(55,55,62)
+bar.BorderSizePixel=0
+Instance.new("UICorner",bar).CornerRadius=UDim.new(1,0)
+
+local fill=Instance.new("Frame",bar)
+fill.Size=UDim2.new(speed/MAX_SPEED,0,1,0)
+fill.BackgroundColor3=Color3.fromRGB(80,145,255)
+fill.BorderSizePixel=0
+Instance.new("UICorner",fill).CornerRadius=UDim.new(1,0)
+
+local knob=Instance.new("Frame",bar)
+knob.Size=UDim2.fromOffset(18,18)
+knob.AnchorPoint=Vector2.new(.5,.5)
+knob.Position=UDim2.new(speed/MAX_SPEED,0,.5,0)
+knob.BackgroundColor3=Color3.new(1,1,1)
+knob.BorderSizePixel=0
+Instance.new("UICorner",knob).CornerRadius=UDim.new(1,0)
+
+local function saveObject(o)
+	if saved[o] then return end
+
+	if o:IsA("ParticleEmitter") then
+		saved[o]={1,o.Enabled,o.Rate}
+	elseif o:IsA("Trail") or o:IsA("Beam") then
+		saved[o]={2,o.Enabled}
+	elseif o:IsA("PointLight")
+	or o:IsA("SpotLight")
+	or o:IsA("SurfaceLight") then
+		saved[o]={3,o.Enabled,o.Shadows}
+	elseif o:IsA("PostEffect") then
+		saved[o]={4,o.Enabled}
+	elseif o:IsA("BasePart") then
+		saved[o]={5,o.CastShadow}
+	end
+end
+
+local function perfFix(mode)
+	perf=mode
+
+	if mode=="OFF" then
+		Lighting.GlobalShadows=oldShadow
+		Lighting.EnvironmentDiffuseScale=oldDiffuse
+		Lighting.EnvironmentSpecularScale=oldSpecular
+
+		for o,d in pairs(saved) do
+			if o.Parent then
+				if d[1]==1 then
+					o.Enabled=d[2]
+					o.Rate=d[3]
+				elseif d[1]==2 then
+					o.Enabled=d[2]
+				elseif d[1]==3 then
+					o.Enabled=d[2]
+					o.Shadows=d[3]
+				elseif d[1]==4 then
+					o.Enabled=d[2]
+				elseif d[1]==5 then
+					o.CastShadow=d[2]
+				end
+			end
+		end
+
+		return
+	end
+
+	Lighting.GlobalShadows=false
+	Lighting.EnvironmentDiffuseScale=.35
+	Lighting.EnvironmentSpecularScale=.1
+
+	local ultraMode=mode=="ULTRA"
+
+	for _,o in ipairs(Workspace:GetDescendants()) do
+		saveObject(o)
+
+		if o:IsA("ParticleEmitter") then
+			if ultraMode then
+				o.Enabled=false
+			else
+				o.Rate=o.Rate*.25
+			end
+
+		elseif o:IsA("Trail") or o:IsA("Beam") then
+			if ultraMode then
+				o.Enabled=false
+			end
+
+		elseif o:IsA("PointLight")
+		or o:IsA("SpotLight")
+		or o:IsA("SurfaceLight") then
+			o.Enabled=false
+
+		elseif o:IsA("PostEffect") then
+			o.Enabled=false
+
+		elseif o:IsA("BasePart") then
+			o.CastShadow=false
+		end
+	end
+end
+
+deep.MouseButton1Click:Connect(function()
+	perfFix(perf=="DEEP" and "OFF" or "DEEP")
+end)
+
+ultra.MouseButton1Click:Connect(function()
+	perfFix(perf=="ULTRA" and "OFF" or "ULTRA")
+end)
+
+restore.MouseButton1Click:Connect(function()
+	perfFix("OFF")
+end)
+
+local function validPlayer(m)
+	if not m:IsA("Model") then return false end
+	if not Players:GetPlayerFromCharacter(m) then return false end
+
+	local h=m:FindFirstChildOfClass("Humanoid")
+	local r=m:FindFirstChild("HumanoidRootPart")
+
+	return h and r and h.Health>0
+end
+
+local function validNPC(m)
+	if not m:IsA("Model") then return false end
+	if Players:GetPlayerFromCharacter(m) then return false end
+
+	local h=m:FindFirstChildOfClass("Humanoid")
+	local r=m:FindFirstChild("HumanoidRootPart")
+
+	return h and r and h.Health>0
+end
+
+local function getTargets(kind)
+	local list={}
+
+	if kind=="PLAYER" then
+		for _,p in ipairs(Players:GetPlayers()) do
+			if p~=LP and p.Character and validPlayer(p.Character) then
+				list[#list+1]=p.Character
+				if #list>=MAX_TARGETS then break end
+			end
+		end
+	else
+		for _,m in ipairs(Workspace:GetChildren()) do
+			if validNPC(m) then
+				list[#list+1]=m
+				if #list>=MAX_TARGETS then break end
+			end
+		end
+	end
+
+	return list
+end
+
+local function clearAim()
+	aimTarget=nil
+
+	if aimMark then
+		aimMark:Destroy()
+		aimMark=nil
+	end
+
+	aimLabel.Text="TARGET: --"
+end
+
+local function validAimTarget(m)
+	if not m or not m.Parent then return false end
+
+	local h=m:FindFirstChildOfClass("Humanoid")
+	local r=m:FindFirstChild("HumanoidRootPart")
+
+	if not h or not r or h.Health<=0 then
+		return false
+	end
+
+	if aimType=="PLAYER" then
+		return Players:GetPlayerFromCharacter(m)~=nil
+	else
+		return Players:GetPlayerFromCharacter(m)==nil
+	end
+end
+
+local function getAimScore(m,cam,myRoot)
+	local r=m:FindFirstChild("HumanoidRootPart")
+
+	if not r then
+		return math.huge
+	end
+
+	local p,on=cam:WorldToViewportPoint(r.Position)
+
+	if not on or p.Z<=0 then
+		return math.huge
+	end
+
+	local center=cam.ViewportSize*.5
+
+	local screenDist=
+		(Vector2.new(p.X,p.Y)-center).Magnitude
+
+	local worldDist=
+		(r.Position-myRoot.Position).Magnitude
+
+	if worldDist>1500 then
+		return math.huge
+	end
+
+	return screenDist*4+worldDist*.015
+end
+
+local function findAimTarget()
+	local cam=Workspace.CurrentCamera
+	local char=LP.Character
+	local myRoot=char and char:FindFirstChild("HumanoidRootPart")
+
+	if not cam or not myRoot then
+		return nil
+	end
+
+	if validAimTarget(aimTarget) then
+		local score=getAimScore(aimTarget,cam,myRoot)
+
+		if score<1200 then
+			return aimTarget
+		end
+	end
+
+	local best=nil
+	local bestScore=math.huge
+
+	for _,m in ipairs(getTargets(aimType)) do
+		if validAimTarget(m) then
+			local score=getAimScore(m,cam,myRoot)
+
+			if score<bestScore then
+				bestScore=score
+				best=m
+			end
+		end
+	end
+
+	return best
+end
+
+local function updateAim()
+	if not aim then
+		clearAim()
+		return
+	end
+
+	local target=findAimTarget()
+
+	if not target then
+		clearAim()
+		return
+	end
+
+	aimTarget=target
+
+	if not aimMark then
+		aimMark=Instance.new("Highlight")
+		aimMark.Name="AimDebug"
+		aimMark.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+		aimMark.FillTransparency=.22
+		aimMark.OutlineTransparency=0
+	end
+
+	aimMark.Adornee=target
+	aimMark.Parent=target
+
+	if aimType=="NPC" then
+		aimMark.FillColor=Color3.fromRGB(255,170,0)
+		aimMark.OutlineColor=Color3.fromRGB(255,245,120)
+	else
+		aimMark.FillColor=Color3.fromRGB(255,70,220)
+		aimMark.OutlineColor=Color3.fromRGB(255,190,245)
+	end
+
+	aimLabel.Text="TARGET: "..target.Name
+end
+
+aimButton.MouseButton1Click:Connect(function()
+	aim=not aim
+	aimButton.Text=aim and "AIM: ON" or "AIM: OFF"
+
+	if aim then
+		updateAim()
+	else
+		clearAim()
+	end
+end)
+
+aimNPC.MouseButton1Click:Connect(function()
+	aimType="NPC"
+	clearAim()
+	if aim then updateAim() end
+end)
+
+aimPlayer.MouseButton1Click:Connect(function()
+	aimType="PLAYER"
+	clearAim()
+	if aim then updateAim() end
+end)
+
+local function clearHit()
+	for m,h in pairs(hits) do
+		if h then h:Destroy() end
+		hits[m]=nil
+	end
+end
+
+local function updateHit()
+	if not hit then
+		clearHit()
+		hitLabel.Text="TARGETS: 0"
+		return
+	end
+
+	local targets=getTargets(hitType)
+	local active={}
+
+	for _,m in ipairs(targets) do
+		active[m]=true
+
+		local h=hits[m]
+
+		if not h then
+			h=Instance.new("Highlight")
+			h.Name="HitboxDebug"
+			h.Adornee=m
+			h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
+			h.FillTransparency=.38
+			h.OutlineTransparency=0
+			h.Parent=m
+			hits[m]=h
+		end
+
+		if hitType=="NPC" then
+			h.FillColor=Color3.fromRGB(0,255,120)
+			h.OutlineColor=Color3.fromRGB(150,255,200)
+		else
+			h.FillColor=Color3.fromRGB(0,210,255)
+			h.OutlineColor=Color3.fromRGB(170,240,255)
+		end
+	end
+
+	for m,h in pairs(hits) do
+		if not active[m] or not m.Parent then
+			h:Destroy()
+			hits[m]=nil
+		end
+	end
+
+	hitLabel.Text="TARGETS: "..#targets
+end
+
+hitButton.MouseButton1Click:Connect(function()
+	hit=not hit
+	hitButton.Text=hit and "HITBOX: ON" or "HITBOX: OFF"
+	updateHit()
+end)
+
+hitNPC.MouseButton1Click:Connect(function()
+	hitType="NPC"
+	clearHit()
+	if hit then updateHit() end
+end)
+
+hitPlayer.MouseButton1Click:Connect(function()
+	hitType="PLAYER"
+	clearHit()
+	if hit then updateHit() end
+end)
+
+local function setSpeed(v)
+	speed=math.clamp(math.floor(tonumber(v) or 16),0,MAX_SPEED)
+
+	speedBox.Text=tostring(speed)
+	fill.Size=UDim2.new(speed/MAX_SPEED,0,1,0)
+	knob.Position=UDim2.new(speed/MAX_SPEED,0,.5,0)
+
+	local char=LP.Character
+	local hum=char and char:FindFirstChildOfClass("Humanoid")
+
+	if hum then
+		hum.WalkSpeed=speedOn and speed or 16
+	end
+end
+
+speedBox.FocusLost:Connect(function()
+	setSpeed(speedBox.Text)
+end)
+
+speedButton.MouseButton1Click:Connect(function()
+	speedOn=not speedOn
+	speedButton.Text=speedOn and "SPEED: ON" or "SPEED: OFF"
+	setSpeed(speed)
+end)
+
+local sliding=false
+
+local function slide(x)
+	local r=math.clamp(
+		(x-bar.AbsolutePosition.X)/bar.AbsoluteSize.X,
+		0,
+		1
+	)
+
+	setSpeed(r*MAX_SPEED)
+end
+
+bar.InputBegan:Connect(function(i)
+	if i.UserInputType==Enum.UserInputType.Touch
+	or i.UserInputType==Enum.UserInputType.MouseButton1 then
+		sliding=true
+		slide(i.Position.X)
+	end
+end)
+
+local miniDragging=false
+local miniDragStart
+local miniStartPos
+
+mini.InputBegan:Connect(function(i)
+	if i.UserInputType==Enum.UserInputType.Touch
+	or i.UserInputType==Enum.UserInputType.MouseButton1 then
+		miniDragging=true
+		miniDragStart=i.Position
+		miniStartPos=mini.Position
+	end
+end)
+
+mini.InputEnded:Connect(function(i)
+	if i.UserInputType==Enum.UserInputType.Touch
+	or i.UserInputType==Enum.UserInputType.MouseButton1 then
+		miniDragging=false
+	end
+end)
+
+mini.MouseButton1Click:Connect(function()
+	main.Visible=not main.Visible
+end)
+
+noclipButton.MouseButton1Click:Connect(function()
+	noclip=not noclip
+	noclipButton.Text=noclip and "NOCLIP: ON" or "NOCLIP: OFF"
+end)
+
+UIS.InputChanged:Connect(function(i)
+	if sliding and (
+		i.UserInputType==Enum.UserInputType.Touch
+		or i.UserInputType==Enum.UserInputType.MouseMovement
+	) then
+		slide(i.Position.X)
+	end
+
+	if miniDragging and (
+		i.UserInputType==Enum.UserInputType.Touch
+		or i.UserInputType==Enum.UserInputType.MouseMovement
+	) then
+		local d=i.Position-miniDragStart
+
+		mini.Position=UDim2.new(
+			miniStartPos.X.Scale,
+			miniStartPos.X.Offset+d.X,
+			miniStartPos.Y.Scale,
+			miniStartPos.Y.Offset+d.Y
+		)
+	end
+
+	if fpsDragging and (
+		i.UserInputType==Enum.UserInputType.Touch
+		or i.UserInputType==Enum.UserInputType.MouseMovement
+	) then
+		local d=i.Position-fpsDragStart
+
+		fpsBox.Position=UDim2.new(
+			fpsStartPos.X.Scale,
+			fpsStartPos.X.Offset+d.X,
+			fpsStartPos.Y.Scale,
+			fpsStartPos.Y.Offset+d.Y
+		)
+	end
+end)
+
+UIS.InputEnded:Connect(function(i)
+	if i.UserInputType==Enum.UserInputType.Touch
+	or i.UserInputType==Enum.UserInputType.MouseButton1 then
+		sliding=false
+	end
+end)
+
+RunService.Heartbeat:Connect(function(dt)
+	aimClock+=dt
+	hitClock+=dt
+
+	if noclip then
+		local char=LP.Character
+
+		if char then
+			for _,o in ipairs(char:GetDescendants()) do
+				if o:IsA("BasePart") then
+					o.CanCollide=false
+				end
+			end
+		end
+	end
+
+	if aim and aimClock>=.016 then
+		aimClock=0
+		updateAim()
+	end
+
+	if hit and hitClock>=.08 then
+		hitClock=0
+		updateHit()
+	end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+	fpsCount+=1
+	fpsClock+=dt
+
+	if fpsClock>=.5 then
+		local f=math.floor(fpsCount/fpsClock)
+		f=math.clamp(f,0,300)
+
+		fpsLabel.Text="FPS "..f
+
+		if f>=120 then
+			fpsLabel.TextColor3=Color3.fromRGB(120,255,120)
+		elseif f>=60 then
+			fpsLabel.TextColor3=Color3.fromRGB(255,220,80)
+		else
+			fpsLabel.TextColor3=Color3.fromRGB(255,80,80)
+		end
+
+		fpsCount=0
+		fpsClock=0
+	end
+end)
+
+LP.CharacterAdded:Connect(function(char)
+	task.wait(.4)
+
+	local hum=char:FindFirstChildOfClass("Humanoid")
+
+	if hum and speedOn then
+		hum.WalkSpeed=speed
+	end
+
+	if noclip then
+		for _,o in ipairs(char:GetDescendants()) do
+			if o:IsA("BasePart") then
+				o.CanCollide=false
+			end
+		end
+	end
+
+	clearAim()
+end)
+
+Workspace.DescendantAdded:Connect(function(o)
+	if perf=="DEEP" then
+		saveObject(o)
+
+		if o:IsA("ParticleEmitter") then
+			o.Rate=o.Rate*.25
+		elseif o:IsA("PointLight")
+		or o:IsA("SpotLight")
+		or o:IsA("SurfaceLight")
+		or o:IsA("PostEffect") then
+			o.Enabled=false
+		elseif o:IsA("BasePart") then
+			o.CastShadow=false
+		end
+
+	elseif perf=="ULTRA" then
+		saveObject(o)
+
+		if o:IsA("ParticleEmitter")
+		or o:IsA("Trail")
+		or o:IsA("Beam")
+		or o:IsA("PointLight")
+		or o:IsA("SpotLight")
+		or o:IsA("SurfaceLight")
+		or o:IsA("PostEffect") then
+			o.Enabled=false
+		elseif o:IsA("BasePart") then
+			o.CastShadow=false
+		end
+	end
+end)
+
+setSpeed(16)
+
+PERF.Visible=true))
